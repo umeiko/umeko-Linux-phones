@@ -31,7 +31,7 @@
 | 入口 | 说明 |
 | --- | --- |
 | 屏幕 | 直接显示启动日志和登录提示（tty0） |
-| USB 串口 | **插上电脑就出一个免密串口控制台**（ttyGS0，g_serial 内置于内核） |
+| USB 串口 | **插上电脑就出一个免密串口控制台**（ttyGS0，configfs gadget 由 usb-gadget.service 开机组装），同时还有一个 USB 网卡（usb0，手机端 `192.168.100.1`，可直接 SSH） |
 | UART | ttyMSM0，115200（需要拆机接 TTL 串口线） |
 | SSH | 先用上面的任意控制台 `nmtui` 配好 WiFi |
 | webssh | 配好网络后浏览器访问 `http://<手机IP>:8888` |

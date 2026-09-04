@@ -1,0 +1,13 @@
+[Unit]
+Description=Buffyboard Service
+After=network.target multi-user.target
+
+[Service]
+Type=simple
+# meson installs the binary to /usr/local/bin (prefix /usr/local)
+ExecStart=/usr/local/bin/buffyboard
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

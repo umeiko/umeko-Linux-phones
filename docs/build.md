@@ -40,7 +40,7 @@ devices/wt88047/           # 机型定制目录（全部可选，见下）
 | `rootfs/` | assemble.sh | overlay，原样拷入根文件系统。systemd unit 放 `rootfs/etc/systemd/system/`，脚本放 `rootfs/usr/local/lib/umeko/` |
 | `post-assemble.sh` | assemble.sh | 根文件系统组装完成后在 chroot 里执行的钩子：`systemctl enable …`、编译安装额外软件等。环境变量带 `DEVICE_CODENAME` `DEVICE_NAME` `SOC` `DEFAULT_USER` `BOOTFS_UUID` |
 
-wt88047 的内核片段（`devices/wt88047/kernel.config`）在 msm8916_defconfig 基础上打开了：内置 g_serial（ttyGS0 USB 串口控制台）、CAN + gs_usb（USB CAN 适配器）、RNDIS host、FRAMEBUFFER_CONSOLE（屏幕控制台）。这些参考自 KlipperPhonesLinux 广受好评的红米2 刷机包所用的内核配置。
+wt88047 的内核片段（`devices/wt88047/kernel.config`）在 msm8916_defconfig 基础上打开了：USB configfs gadget（`USB_CONFIGFS` + SERIAL + NCM，由 `usb-gadget.service` 开机组装出 ttyGS0 串口 + usb0 网卡，见下文"已知边界"）、CAN + gs_usb（USB CAN 适配器）、RNDIS host、FRAMEBUFFER_CONSOLE（屏幕控制台）。这些参考自 KlipperPhonesLinux 广受好评的红米2 刷机包所用的内核配置。
 
 ## CI 流水线（.github/workflows/build.yml）
 
@@ -115,4 +115,4 @@ BUFFYBOARD=1 ./scripts/assemble.sh devices/wt88047.env devices/vivo-y23l.env
 
 - 内核版本号在本地 Windows 工作区直接构建时可能带 `-dirty` 后缀（Windows 文件系统丢 exec 位/符号链接导致内核 git 树变"脏"）。用[容器内构建](docker.md)则无此问题；CI 上始终干净
 - Ubuntu 24.04 的 `mkbootimg` 包漏装了 `gki` python 模块（上游打包 bug，只在用 GKI 签名参数时才真正需要它）。`pack.sh` 检测到会自动在宿主机装一个 stub 模块，无需人工干预
-- **USB 串口控制台与 OTG 热插拔互斥**（见 [#36 分析](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：`kernel.config` 里 `CONFIG_USB_G_SERIAL=y` 把 g_serial gadget 内建进内核，开机即独占 USB 控制器（UDC），之后插入 OTG 线时 ID 脚触发的 host 角色切换无法进行。规避：OTG 线需在开机前插好；要热插拔 OTG 需改用可卸载方案（`g_serial=m` 或 configfs gadget 按需绑定，见 issue 讨论）
+- **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本在 `devices/wt88047/rootfs/usr/local/lib/umeko/usb_gadget_setup.sh`），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）

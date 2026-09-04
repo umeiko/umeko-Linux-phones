@@ -77,7 +77,7 @@ panel compatible（match-panel），两种面板驱动都已在合并包内核�
 | 触摸屏 | 🧪 | gt928 / edt-ft5306 设备树已配 |
 | WiFi | 🧪 | WCN3620，固件提取服务与红米 2 共用 |
 | 充电/电量计 | 🧪 | SMB358 + pm8916 BMS，设备树已配 |
-| USB 串口控制台 | ✅ | 与红米 2 相同（autottyGS0）；extcon 同时接 PMIC VBUS 检测与 ID GPIO，device 模式可用 |
+| USB 串口控制台 | 🧪 | 与红米 2 相同（configfs gadget + autottyGS0）；dtb 照抄老项目实测可用的 device 版：`dr_mode=otg`，extcon 双槽都给 ID GPIO，`pm8916_usbin` 保持 disabled |
 | 基带 | ❌ | 未做 |
 
 ✅ = 真机确认可用；🧪 = 构建已验证，待真机确认。

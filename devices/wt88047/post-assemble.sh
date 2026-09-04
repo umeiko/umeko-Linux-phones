@@ -12,10 +12,11 @@ chmod 755 /usr/local/lib/umeko/*.sh
 
 # Services adopted from https://gitee.com/meiziyang2023/umeko-env-init
 # (plus umeko-modem-firmware, which pulls the WiFi/modem firmware from the
-# phone's own modem partition; ttyGS0 comes from the built-in g_serial
-# gadget, see kernel.config).
+# phone's own modem partition; ttyGS0/usb0 come from the configfs gadget
+# created by usb-gadget.service, see kernel.config).
 systemctl enable \
     umeko-modem-firmware.service \
+    usb-gadget.service \
     autottyGS0.service \
     autoresize.service \
     auto_rmi4_reload.service \

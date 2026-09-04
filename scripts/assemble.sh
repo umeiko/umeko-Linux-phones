@@ -151,6 +151,11 @@ fi
 # keeps builds reproducible. The install payload is cached as a tarball in
 # .cache so rebuilds skip the (slow, qemu-emulated) lvgl compilation.
 if [[ "${BUFFYBOARD:-0}" != "0" ]]; then
+    # Our own unit takes precedence over the upstream one (installed by meson
+    # to /usr/local/lib/systemd/system) and is known to auto-start on device;
+    # the systemctl enable calls below resolve to this file.
+    sudo install -D -m 644 "$REPO_ROOT/config/buffyboard.service" \
+        "$MNT_DIR/etc/systemd/system/buffyboard.service"
     BUFFYBOARD_PKG="$CACHE_DIR/buffyboard-$BUFFYBOARD_TAG-arm64.tar.gz"
     if [[ -f "$BUFFYBOARD_PKG" ]]; then
         log "installing cached buffyboard $BUFFYBOARD_TAG"

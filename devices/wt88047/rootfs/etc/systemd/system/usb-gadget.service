@@ -1,0 +1,14 @@
+[Unit]
+Description=USB NCM + Serial gadget setup (configfs)
+After=local-fs.target
+ConditionPathExists=/sys/kernel/config
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/umeko/usb_gadget_setup.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
