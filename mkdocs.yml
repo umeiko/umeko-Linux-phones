@@ -38,4 +38,5 @@ nav:
     - devices/index.md
     - 红米 2（wt88047）: devices/wt88047.md
     - vivo Y23L（vivo-y23l）: devices/vivo-y23l.md
+    - 小米 4（cancro）: devices/cancro.md
   - 可选路线：extlinux 启动（实验性）: extlinux.md

@@ -30,27 +30,48 @@ load_device() {
 
 # Collect per-device info for a multi-device invocation. Fills two indexed
 # arrays: DEVICE_DIRS (devices/<codename>/ per env) and DEVICE_DTBS (the
-# KERNEL_DTB of each env). The first env is the "base" one already loaded by
-# load_device; its other values (cmdline, UUID, hostname, ...) are used for
-# the shared artifacts.
+# KERNEL_DTB of each env — a space-separated list is split into separate
+# entries, e.g. cancro ships three touchscreen-variant dtbs). The first env is
+# the "base" one already loaded by load_device; its other values (cmdline,
+# UUID, hostname, ...) are used for the shared artifacts.
 collect_devices() {
     DEVICE_DIRS=()
     DEVICE_DTBS=()
     DEVICE_NAMES=()
     DEVICE_CODES=()
-    local env code dtb dname
+    local env code dtbs dtb dname
     for env in "$@"; do
         [[ -f "$env" ]] || die "device config not found: $env"
         code="$(basename "$env" .env)"
         [[ -d "$REPO_ROOT/devices/$code" ]] || die "device dir missing: devices/$code"
-        dtb="$(bash -c 'source "$1" >/dev/null 2>&1; echo "${KERNEL_DTB:-}"' _ "$(realpath "$env")")"
-        [[ -n "$dtb" ]] || die "KERNEL_DTB missing in $env"
+        dtbs="$(bash -c 'source "$1" >/dev/null 2>&1; echo "${KERNEL_DTB:-}"' _ "$(realpath "$env")")"
+        [[ -n "$dtbs" ]] || die "KERNEL_DTB missing in $env"
         dname="$(bash -c 'source "$1" >/dev/null 2>&1; echo "${DEVICE_NAME:-}"' _ "$(realpath "$env")")"
         DEVICE_DIRS+=("$REPO_ROOT/devices/$code")
-        DEVICE_DTBS+=("$dtb")
+        for dtb in $dtbs; do
+            DEVICE_DTBS+=("$dtb")
+        done
         DEVICE_NAMES+=("${dname:-$code}")
         DEVICE_CODES+=("$code")
     done
+}
+
+# Derive kernel-tree variables from the device ARCH (arm64 | armhf).
+# Sets: KARCH (kernel tree arch), CROSS (toolchain prefix, overridable via
+# CROSS_COMPILE_PREFIX in a device env), KERNEL_IMAGE (Image.gz on arm64,
+# zImage on 32-bit ARM unless overridden), KERNEL_IMAGE_REL / DTS_DIR_REL
+# (paths relative to the kernel build dir).
+kernel_arch_vars() {
+    case "${ARCH:?ARCH missing in device env}" in
+        arm64) KARCH=arm64; DEFAULT_CROSS=aarch64-linux-gnu- ;;
+        armhf) KARCH=arm;   DEFAULT_CROSS=arm-linux-gnueabi- ;;
+        *)     die "unsupported ARCH: $ARCH (expected arm64 or armhf)" ;;
+    esac
+    CROSS="${CROSS_COMPILE_PREFIX:-$DEFAULT_CROSS}"
+    KERNEL_IMAGE="${KERNEL_IMAGE:-Image.gz}"
+    [[ "$KARCH" == "arm" && "$KERNEL_IMAGE" == "Image.gz" ]] && KERNEL_IMAGE="zImage"
+    KERNEL_IMAGE_REL="arch/$KARCH/boot/$KERNEL_IMAGE"
+    DTS_DIR_REL="arch/$KARCH/boot/dts"
 }
 
 # Trim free space in the rootfs image (punch holes via loop discard) so the

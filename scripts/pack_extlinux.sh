@@ -22,6 +22,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 [[ $# -ge 1 ]] || die "usage: $0 devices/<codename>.env [more.env ...]"
 load_device "$1"
 collect_devices "$@"
+kernel_arch_vars
 
 KBUILD="$BUILD_DIR/kernel"
 KREL="$(cat "$BUILD_DIR/kernelrelease")"
@@ -40,7 +41,7 @@ mkdir -p "$STAGE/root/extlinux" "$OUT_DIR"
 
 # --- bootfs contents ----------------------------------------------------------
 log "staging extlinux boot filesystem (${DEVS_JOINED})"
-cp "$KBUILD/arch/arm64/boot/Image.gz" "$STAGE/root/"
+cp "$KBUILD/$KERNEL_IMAGE_REL" "$STAGE/root/"
 INITRD_LINE=""
 if [[ -f "$BUILD_DIR/initrd.img" ]]; then
     cp "$BUILD_DIR/initrd.img" "$STAGE/root/initrd.img"
@@ -50,7 +51,7 @@ else
 fi
 for dtb in "${DEVICE_DTBS[@]}"; do
     mkdir -p "$STAGE/root/dtbs/$(dirname "$dtb")"
-    cp "$KBUILD/arch/arm64/boot/dts/$dtb" "$STAGE/root/dtbs/$dtb"
+    cp "$KBUILD/$DTS_DIR_REL/$dtb" "$STAGE/root/dtbs/$dtb"
 done
 
 # With a single device, pin the dtb explicitly; with several, let lk2nd pick
@@ -68,7 +69,7 @@ menu title umeko Linux (${DEVS_JOINED})
 default umeko
 
 label umeko
-    linux /Image.gz
+    linux /$KERNEL_IMAGE
     $FDT_LINE
     $INITRD_LINE
     append $KERNEL_CMDLINE
@@ -145,7 +146,7 @@ EOF
     done
     cat <<EOF
 soc:      $SOC
-kernel:   $KREL (msm8916-mainline/linux)
+kernel:   $KREL ($KERNEL_SUBMODULE)
 cmdline:  $KERNEL_CMDLINE
 lk2nd:    $LK2ND_VERSION ($LK2ND_URL)
 rootfs:   $(basename "$UBUNTU_BASE_URL"), UUID $ROOTFS_UUID
@@ -153,7 +154,7 @@ built:    $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 Flashing layout (extlinux variant):
   boot     <- $LK2ND_FILE   (once, from the stock bootloader)
-  system   <- bootfs.img    (ext2: /extlinux/extlinux.conf + Image.gz + dtbs)
+  system   <- bootfs.img    (ext2: /extlinux/extlinux.conf + $KERNEL_IMAGE + dtbs)
   userdata <- rootfs.img    (sparse ext4)
 
 Login: $DEFAULT_USER / $DEFAULT_PASSWORD

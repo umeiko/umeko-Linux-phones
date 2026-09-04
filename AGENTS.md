@@ -4,14 +4,14 @@
 
 ## 项目是什么
 
-自动构建旧手机（目前：红米2 wt88047、vivo Y23L，均为 msm8916）的 Ubuntu 24.04 arm64 刷机包，用作 Klipper 上位机（Klipper 全家桶是二期，当前只出最小系统）。
+自动构建旧手机的 Ubuntu 24.04 刷机包，用作 Klipper 上位机（Klipper 全家桶是二期，当前只出最小系统）。机型：红米2 wt88047、vivo Y23L（均 msm8916/arm64，合并包）；小米4 cancro（msm8974/armhf 32 位，独立包，CI job `build-cancro`）。
 
 流水线（`scripts/` 下，按序执行）：
 
-1. `build_kernel.sh` — submodule `kernels/msm8916`（pin 在 msm8916-mainline/linux 的 v6.12.1-msm8916）+ `devices/<机型>/kernel-patches/` + `kernel.config` fragment
-2. `build_rootfs.sh` — 下载 ubuntu-base tarball（校验 SHA256）+ 固定 UUID 的 ext4 空镜像
-3. `assemble.sh` — qemu-aarch64 chroot 装包/用户/服务 + 内核模块 + initramfs + 设备 overlay + post-assemble 钩子
-4. `pack_extlinux.sh` — **默认路线**：extlinux 合并包（lk2nd 读 bootfs.img 里的 extlinux.conf，fdtdir 支持多机型共包）。`pack.sh`（mkbootimg）是 legacy。
+1. `build_kernel.sh` — submodule（msm8916 → msm8916-mainline/linux v6.12.1；cancro → bzy-080408/linux-msm8974 的 cancro-klipper 分支）+ `devices/<机型>/kernel-patches/` + `kernel.config` fragment。ARCH 由设备 env 决定（arm64→aarch64 工具链/Image.gz；armhf→arm-linux-gnueabi/zImage），多机型构建必须同架构
+2. `build_rootfs.sh` — 下载 ubuntu-base tarball（arm64/armhf 由 `UBUNTU_BASE_URL` 决定，校验 SHA256）+ 固定 UUID 的 ext4 空镜像
+3. `assemble.sh` — qemu chroot（arm64→qemu-aarch64-static，armhf→qemu-arm-static）装包/用户/服务 + 内核模块 + initramfs（压缩格式 `INITRD_COMPRESS`，cancro 用 gzip）+ **`config/rootfs/` 共享 overlay**（umeko 服务套件）+ 设备 overlay + post-assemble 钩子。**btrfs-progs 会被 purge（高通平台致命冲突，勿加回）**
+4. `pack_extlinux.sh` — **默认路线**：extlinux 合并包（lk2nd 读 bootfs.img 里的 extlinux.conf，fdtdir 支持多机型/多 dtb 变体共包）。`pack.sh`（mkbootimg）是 legacy。
 
 CI 在 `.github/workflows/build.yml`；纯文档 push 不触发构建（changes 门控），tag/手动始终构建。
 

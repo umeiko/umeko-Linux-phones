@@ -37,8 +37,16 @@ devices/wt88047/           # 机型定制目录（全部可选，见下）
 | --- | --- | --- |
 | `kernel.config` | build_kernel.sh | 内核配置片段，defconfig 之后用内核自带的 `scripts/kconfig/merge_config.sh` 合并，再 `olddefconfig` |
 | `kernel-patches/` | build_kernel.sh | 内核补丁（`*.patch`，按文件名排序用 `git apply` 打进内核树，幂等；已应用的会跳过）。注意：打补丁会弄脏内核工作树，配合片段里 `# CONFIG_LOCALVERSION_AUTO is not set`（脚本同时导出空 `LOCALVERSION`）保证 kernelrelease 可复现 |
-| `rootfs/` | assemble.sh | overlay，原样拷入根文件系统。systemd unit 放 `rootfs/etc/systemd/system/`，脚本放 `rootfs/usr/local/lib/umeko/` |
+| `rootfs/` | assemble.sh | 机型私有 overlay，原样拷入根文件系统。所有机型共享的 overlay 在 `config/rootfs/`（umeko 服务套件：usb-gadget、autottyGS0、autoresize 等），先拷贝、可被机型 overlay 覆盖 |
 | `post-assemble.sh` | assemble.sh | 根文件系统组装完成后在 chroot 里执行的钩子：`systemctl enable …`、编译安装额外软件等。环境变量带 `DEVICE_CODENAME` `DEVICE_NAME` `SOC` `DEFAULT_USER` `BOOTFS_UUID` |
+
+`KERNEL_DTB` 支持空格分隔多个 dtb（如 cancro 的三个触屏变体），多于一个时
+extlinux.conf 自动走 `fdtdir /dtbs` 由 lk2nd 匹配。
+
+跨架构说明：`ARCH`（arm64/armhf）决定交叉工具链、chroot 用的 qemu 二进制、
+内核镜像（Image.gz / zImage）和 ubuntu-base tarball（设备 env 里覆盖
+`UBUNTU_BASE_URL` 选 armhf；initrd 压缩格式用 `INITRD_COMPRESS` 覆盖）。
+不同架构的机型不能进同一次多机型构建，各自出独立包（见 CI 的 build-cancro job）。
 
 wt88047 的内核片段（`devices/wt88047/kernel.config`）在 msm8916_defconfig 基础上打开了：USB configfs gadget（`USB_CONFIGFS` + SERIAL + NCM，由 `usb-gadget.service` 开机组装出 ttyGS0 串口 + usb0 网卡，见下文"已知边界"）、CAN + gs_usb（USB CAN 适配器）、RNDIS host、FRAMEBUFFER_CONSOLE（屏幕控制台）。这些参考自 KlipperPhonesLinux 广受好评的红米2 刷机包所用的内核配置。
 
@@ -46,7 +54,7 @@ wt88047 的内核片段（`devices/wt88047/kernel.config`）在 msm8916_defconfi
 
 - **触发**：push 到 `main` 且改动涉及代码（`scripts/` `devices/` `config/` `kernels/` 等，由前置 `changes` job 用 `git diff` 门控——纯文档变更不构建）或手动触发 → 构建并上传 artifact（保留 14 天）；push `v*` tag → 始终构建并发布 GitHub Release（tag 不受路径过滤影响）
 - **环境**：`ubuntu-24.04` runner，依赖安装清单与 [Dockerfile](docker.md) 一致
-- **产物**：只出 extlinux 合并包（`DEVICE_ENVS_EXTLINUX`：红米2 + vivo Y23L）；mkbootimg 单机型包（`pack.sh`）已转 legacy，CI 不再构建，需要时本地跑
+- **产物**：两个 job 两个包——`build` 出 msm8916 extlinux 合并包（`DEVICE_ENVS_EXTLINUX`：红米2 + vivo Y23L），`build-cancro` 出 cancro 独立包（armhf，内核源/工具链/底包均不同）；mkbootimg 单机型包（`pack.sh`）已转 legacy，CI 不再构建，需要时本地跑
 - **buffyboard**：CI 上 `BUFFYBOARD=0`，只构建 base 包（qemu 下编译 buffyboard 太慢），开关见下文
 - **缓存**：
   - ccache（key `kernel-wt88047`）——第二次起内核编译从 ~8 分钟降到 1~2 分钟
@@ -115,4 +123,5 @@ BUFFYBOARD=1 ./scripts/assemble.sh devices/wt88047.env devices/vivo-y23l.env
 
 - 内核版本号在本地 Windows 工作区直接构建时可能带 `-dirty` 后缀（Windows 文件系统丢 exec 位/符号链接导致内核 git 树变"脏"）。用[容器内构建](docker.md)则无此问题；CI 上始终干净
 - Ubuntu 24.04 的 `mkbootimg` 包漏装了 `gki` python 模块（上游打包 bug，只在用 GKI 签名参数时才真正需要它）。`pack.sh` 检测到会自动在宿主机装一个 stub 模块，无需人工干预
-- **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本在 `devices/wt88047/rootfs/usr/local/lib/umeko/usb_gadget_setup.sh`），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）
+- **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本在 `config/rootfs/usr/local/lib/umeko/usb_gadget_setup.sh`），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）
+- **btrfs-progs 已强制移除**：ubuntu-base 自带的 btrfs-progs 与高通 SoC 平台存在致命冲突（其 udev 规则/用户态会在启动时卡死），assemble.sh 在 chroot 里 `apt-get purge -y btrfs-progs`，不要在 `ROOTFS_PACKAGES` 里再加回来

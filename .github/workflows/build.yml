@@ -105,3 +105,64 @@ jobs:
         with:
           files: out/*.zip
           generate_release_notes: true
+
+  # cancro (Xiaomi Mi 4, msm8974) is 32-bit armhf with its own kernel source —
+  # a separate package, not part of the msm8916 combined extlinux bundle.
+  build-cancro:
+    name: cancro (msm8974, armhf)
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.ref_type == 'tag' ||
+      needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch pinned kernel submodule (shallow)
+        run: git submodule update --init --depth 1 kernels/msm8974
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-linux-gnueabi bc bison flex libssl-dev libncurses-dev kmod ccache dwarves \
+            qemu-user-static mkbootimg android-sdk-libsparse-utils e2fsprogs zip curl ca-certificates
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: kernel-cancro
+          max-size: 500M
+
+      - name: Cache ubuntu-base tarball
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ubuntu-base-24.04.3-armhf
+
+      - name: Build kernel
+        run: ./scripts/build_kernel.sh devices/cancro.env
+
+      - name: Build rootfs image
+        run: ./scripts/build_rootfs.sh devices/cancro.env
+
+      - name: Assemble rootfs (chroot)
+        run: ./scripts/assemble.sh devices/cancro.env
+
+      - name: Pack extlinux bundle
+        run: ./scripts/pack_extlinux.sh devices/cancro.env
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cancro-package
+          path: out/*.zip
+          retention-days: 14
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.zip
+          generate_release_notes: false

@@ -12,6 +12,11 @@ PKG_VERSION="${PACK_VERSION:-$(date +%Y%m%d)}"
 PKG_NAME="umeko-${DEVICE_CODENAME}-ubuntu24.04-${PKG_VERSION}"
 STAGE="$BUILD_DIR/pack"
 
+# Legacy arm64-only route: Image.gz + single appended dtb. 32-bit devices
+# (armhf, e.g. cancro) also need qcdt for the stock boot.img — use the
+# extlinux/lk2nd route (pack_extlinux.sh) for those instead.
+[[ "${ARCH:-arm64}" == "arm64" ]] || die "pack.sh is arm64-only (legacy); use pack_extlinux.sh for $ARCH"
+
 [[ -f "$BUILD_DIR/rootfs.img" ]] || die "rootfs.img missing, run assemble.sh first"
 command -v mkbootimg >/dev/null || die "mkbootimg not installed"
 command -v img2simg  >/dev/null || die "img2simg not installed (android-sdk-libsparse-utils)"

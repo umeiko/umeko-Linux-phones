@@ -2,7 +2,7 @@
 
 把旧手机变成 Linux 上位机 —— **全自动构建刷机包**。
 
-本项目是 [KlipperPhonesLinux](https://github.com/umeiko/KlipperPhonesLinux) 的续作：从"收集别人做好的刷机包"转向"从源码全自动构建刷机包"。目前支持 **红米2（wt88047）** 和 **vivo Y23L（pd1419）** 两款 MSM8916 机型（见[机型列表](devices/index.md)），系统底包为 **Ubuntu 24.04 arm64 最小系统**。
+本项目是 [KlipperPhonesLinux](https://github.com/umeiko/KlipperPhonesLinux) 的续作：从"收集别人做好的刷机包"转向"从源码全自动构建刷机包"。目前支持 **红米2（wt88047）**、**vivo Y23L（pd1419）** 两款 MSM8916 机型（arm64）和 **小米4（cancro，MSM8974PRO，32 位 armhf，独立包）**（见[机型列表](devices/index.md)），系统底包为 **Ubuntu 24.04 最小系统**。
 
 全部构建由 GitHub Actions 完成，也可以用 Docker 在本机一键构建（见[本地 Docker 构建](docker.md)）。
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the kernel (Image.gz + device dtb(s) + modules) for one or more
+# Build the kernel (kernel image + device dtb(s) + modules) for one or more
 # devices.
 # Usage: scripts/build_kernel.sh devices/<a>.env [devices/<b>.env ...]
 #
@@ -7,6 +7,8 @@
 # kernel-patches/ series is applied to the same tree and all their dtbs are
 # built — one kernel serves the whole set (used by the combined extlinux
 # package). The first env provides the base configuration (defconfig etc.).
+# All devices in one invocation must share the same ARCH — 32-bit devices
+# (armhf, e.g. cancro) are built as separate packages.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 [[ $# -ge 1 ]] || die "usage: $0 devices/<codename>.env [more.env ...]"
@@ -17,12 +19,15 @@ KSRC="$REPO_ROOT/$KERNEL_SUBMODULE"
 KBUILD="$BUILD_DIR/kernel"
 [[ -e "$KSRC/.git" ]] || die "kernel submodule missing: $KSRC (run: git submodule update --init)"
 
+kernel_arch_vars
+DTS_DIR="$KBUILD/$DTS_DIR_REL"
+
 # Wrap the cross compiler in ccache when available (big win on CI re-runs).
 CCACHE=""
 command -v ccache >/dev/null && CCACHE="ccache "
 
-export ARCH=arm64
-export CROSS_COMPILE="${CCACHE}aarch64-linux-gnu-"
+export ARCH="$KARCH"
+export CROSS_COMPILE="${CCACHE}${CROSS}"
 # Keep kernelrelease reproducible when device patches are applied: with
 # CONFIG_LOCALVERSION_AUTO off, setlocalversion still appends "+" for a dirty
 # tree unless the LOCALVERSION env var is set (even empty). Pin it empty.
@@ -62,8 +67,8 @@ if [[ ${#FRAGMENTS[@]} -gt 0 ]]; then
     make -C "$KSRC" O="$KBUILD" olddefconfig
 fi
 
-log "compiling Image.gz + dtbs (${DEVICE_DTBS[*]}) + modules"
-make -C "$KSRC" O="$KBUILD" -j"$(nproc)" Image.gz "${DEVICE_DTBS[@]}" modules
+log "compiling $KERNEL_IMAGE + dtbs (${DEVICE_DTBS[*]}) + modules"
+make -C "$KSRC" O="$KBUILD" -j"$(nproc)" "$KERNEL_IMAGE" "${DEVICE_DTBS[@]}" modules
 
 log "installing modules to staging dir"
 rm -rf "$BUILD_DIR/modinst"
@@ -74,8 +79,8 @@ make -C "$KSRC" O="$KBUILD" \
 KREL="$(make -s -C "$KSRC" O="$KBUILD" kernelrelease)"
 echo "$KREL" > "$BUILD_DIR/kernelrelease"
 
-[[ -f "$KBUILD/arch/arm64/boot/Image.gz" ]] || die "Image.gz missing"
+[[ -f "$KBUILD/arch/$KARCH/boot/$KERNEL_IMAGE" ]] || die "$KERNEL_IMAGE missing"
 for dtb in "${DEVICE_DTBS[@]}"; do
-    [[ -f "$KBUILD/arch/arm64/boot/dts/$dtb" ]] || die "dtb missing: $dtb"
+    [[ -f "$DTS_DIR/$dtb" ]] || die "dtb missing: $dtb"
 done
 log "kernel $KREL built OK (dtbs: ${DEVICE_DTBS[*]})"

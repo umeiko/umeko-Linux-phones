@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble the rootfs: extract ubuntu-base into the ext4 image, configure the
-# system inside a qemu-aarch64 chroot (packages, locale, user, consoles),
+# system inside a qemu-user chroot (packages, locale, user, consoles),
 # and install the kernel modules built by build_kernel.sh.
 # Usage: scripts/assemble.sh devices/<a>.env [devices/<b>.env ...]
 # With multiple devices, every device's rootfs overlay and post-assemble hook
@@ -10,6 +10,13 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 load_device "$@"
 
+# qemu-user static binary for the chroot, per target ARCH.
+case "${ARCH:?ARCH missing in device env}" in
+    arm64) QEMU_BIN=qemu-aarch64-static ;;
+    armhf) QEMU_BIN=qemu-arm-static ;;
+    *)     die "unsupported ARCH: $ARCH" ;;
+esac
+
 TARBALL="$CACHE_DIR/$(basename "$UBUNTU_BASE_URL")"
 IMAGE="$BUILD_DIR/rootfs.img"
 KREL="$(cat "$BUILD_DIR/kernelrelease")"
@@ -18,7 +25,7 @@ MODDIR="$BUILD_DIR/modinst/lib/modules/$KREL"
 [[ -f "$TARBALL" ]] || die "ubuntu-base tarball missing, run build_rootfs.sh first"
 [[ -f "$IMAGE" ]]   || die "rootfs image missing, run build_rootfs.sh first"
 [[ -d "$MODDIR" ]]  || die "kernel modules missing ($MODDIR), run build_kernel.sh first"
-command -v qemu-aarch64-static >/dev/null || die "qemu-user-static not installed"
+command -v "$QEMU_BIN" >/dev/null || die "qemu-user-static not installed ($QEMU_BIN)"
 
 mkdir -p "$MNT_DIR"
 
@@ -47,7 +54,7 @@ sudo tar --numeric-owner -xpf "$TARBALL" -C "$MNT_DIR"
 
 # --- chroot prerequisites -------------------------------------------------
 # qemu user emulator (binfmt_misc with the F flag also works, keep both)
-sudo cp "$(command -v qemu-aarch64-static)" "$MNT_DIR/usr/bin/"
+sudo cp "$(command -v "$QEMU_BIN")" "$MNT_DIR/usr/bin/"
 # resolv.conf in ubuntu-base is a dangling symlink; provide real DNS in chroot
 sudo rm -f "$MNT_DIR/etc/resolv.conf"
 printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee "$MNT_DIR/etc/resolv.conf" >/dev/null
@@ -63,6 +70,10 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y --no-install-recommends $ROOTFS_PACKAGES
+
+# btrfs-progs ships in ubuntu-base but fatally conflicts with Qualcomm SoCs
+# (its udev rules/userspace hang the boot on qcom platforms) — purge it.
+apt-get purge -y btrfs-progs
 
 # locale & timezone
 locale-gen $LOCALE
@@ -95,7 +106,7 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 EOF
 
-log "configuring system inside chroot (qemu-aarch64)"
+log "configuring system inside chroot ($QEMU_BIN)"
 sudo chroot "$MNT_DIR" bash /tmp/umeko-setup.sh
 
 # --- kernel modules ---------------------------------------------------------
@@ -115,13 +126,21 @@ sudo cp "$BUILD_DIR/kernel/.config" "$MNT_DIR/boot/config-$KREL"
 # the in-chroot package setup before invoking mkinitramfs.
 sudo chroot "$MNT_DIR" test -d /sys/devices \
     || die "sysfs not visible inside chroot ($MNT_DIR/sys)"
-printf 'MODULES=dep\nCOMPRESS=zstd\n' | sudo tee "$MNT_DIR/etc/initramfs-tools/conf.d/umeko.conf" >/dev/null
+printf "MODULES=dep\nCOMPRESS=$INITRD_COMPRESS\n" | sudo tee "$MNT_DIR/etc/initramfs-tools/conf.d/umeko.conf" >/dev/null
 sudo chroot "$MNT_DIR" mkinitramfs -o "/boot/initrd.img-$KREL" "$KREL"
 sudo cp "$MNT_DIR/boot/initrd.img-$KREL" "$BUILD_DIR/initrd.img"
 
 # --- device-specific customization (devices/<codename>/) --------------------
-# Multi-device builds apply every device's overlay/hook in command-line order
-# (the combined extlinux package shares one rootfs across devices).
+# config/rootfs/ holds the device-independent umeko overlay (systemd units +
+# helper scripts for USB gadget, autologin consoles, firmware extraction, ...)
+# and is applied to EVERY build first; per-device overlays then layer on top
+# and may override individual files. Multi-device builds apply every device's
+# overlay/hook in command-line order (the combined extlinux package shares one
+# rootfs across devices).
+if [[ -d "$REPO_ROOT/config/rootfs" ]]; then
+    log "installing shared overlay (config/rootfs)"
+    sudo cp -a "$REPO_ROOT/config/rootfs/." "$MNT_DIR/"
+fi
 collect_devices "$@"
 for dir in "${DEVICE_DIRS[@]}"; do
     # rootfs/ overlay: files copied verbatim into the rootfs (systemd units,
@@ -156,7 +175,7 @@ if [[ "${BUFFYBOARD:-0}" != "0" ]]; then
     # the systemctl enable calls below resolve to this file.
     sudo install -D -m 644 "$REPO_ROOT/config/buffyboard.service" \
         "$MNT_DIR/etc/systemd/system/buffyboard.service"
-    BUFFYBOARD_PKG="$CACHE_DIR/buffyboard-$BUFFYBOARD_TAG-arm64.tar.gz"
+    BUFFYBOARD_PKG="$CACHE_DIR/buffyboard-$BUFFYBOARD_TAG-$ARCH.tar.gz"
     if [[ -f "$BUFFYBOARD_PKG" ]]; then
         log "installing cached buffyboard $BUFFYBOARD_TAG"
         sudo tar -xzf "$BUFFYBOARD_PKG" -C "$MNT_DIR"
@@ -227,7 +246,7 @@ for i in "${!DEVICE_DIRS[@]}"; do
 done
 
 # --- cleanup ----------------------------------------------------------------
-sudo rm -f "$MNT_DIR/usr/bin/qemu-aarch64-static" \
+sudo rm -f "$MNT_DIR/usr/bin/$QEMU_BIN" \
            "$MNT_DIR/usr/sbin/policy-rc.d" \
            "$MNT_DIR/tmp/umeko-setup.sh"
 # restore the systemd-resolved symlink for normal boot

@@ -3,7 +3,7 @@
 把旧手机变成 Linux 上位机 —— 自动构建系统。
 （Successor of [KlipperPhonesLinux](https://github.com/umeiko/KlipperPhonesLinux)：从"收集刷机包"转向"全自动构建刷机包"。）
 
-**当前状态**：支持红米2 (wt88047) 与 vivo Y23L (pd1419)，均为 msm8916 + Ubuntu 24.04 base 最小系统（不含 Klipper），一个 extlinux 合并包通吃两机型。全部由 GitHub Actions 构建。
+**当前状态**：支持红米2 (wt88047) 与 vivo Y23L (pd1419)（msm8916/arm64，一个 extlinux 合并包通吃两机型），以及小米4 (cancro, msm8974/armhf 32 位，独立包)。均为 Ubuntu 24.04 base 最小系统（不含 Klipper），全部由 GitHub Actions 构建。
 
 📖 **文档站**：[umeiko.github.io/umeko-Linux-phones](https://umeiko.github.io/umeko-Linux-phones/) —— 从小白原理到本地构建的完整文档。
 
@@ -34,16 +34,17 @@ pack_extlinux.sh   默认路线：mke2fs 出 ext2 的 bootfs.img（extlinux.conf
 pack.sh            legacy 路线（CI 不再构建）：mkbootimg 出 boot.img 的单机型包
 ```
 
-wt88047 的机型定制（`devices/wt88047/`）内置了来自
+所有机型的公共定制（`config/rootfs/`）内置了来自
 [umeko-env-init](https://gitee.com/meiziyang2023/umeko-env-init) 的服务：
 
 | 服务 | 作用 |
 | --- | --- |
 | `umeko-modem-firmware` | 首次开机从手机 modem 分区提取 WiFi/基带固件到 `/lib/firmware`（wcnss 等，不可再分发故不打包进镜像） |
-| `autottyGS0` | ttyGS0 免密自动登录控制台（ttyGS0 由内置 g_serial gadget 提供，见 kernel.config） |
+| `usb-gadget` | 开机用 configfs 组装 USB 复合 gadget：acm 串口（ttyGS0）+ NCM 网卡（usb0，手机端 192.168.100.1） |
+| `autottyGS0` | ttyGS0 免密自动登录控制台 |
 | `autoresize` | 开机自动把根分区文件系统扩满 userdata |
 | `auto_rmi4_reload` + `touchscreens-workaround.conf` | 触摸屏驱动 workaround |
-| `autowebssh` | webssh 网页 SSH（端口 8888） |
+| `autowebssh` | webssh 网页 SSH（端口 8888；cancro 暂无 armhf 二进制，WIP 未启用） |
 | `autocanup` | 自动拉起 USB CAN（gs_usb，can0 @ 500k） |
 
 - push 到 `main` 或手动触发 → 构建并上传 artifact
@@ -52,28 +53,33 @@ wt88047 的机型定制（`devices/wt88047/`）内置了来自
 ## 添加新机型
 
 1. 复制 `devices/wt88047.env` 为 `devices/<codename>.env`，改 dtb、mkbootimg 参数、cmdline 等
-2. 如需不同 SoC 内核，添加对应 submodule 到 `kernels/`
+   （`ARCH` 支持 arm64/armhf；32 位机型还需覆盖 `UBUNTU_BASE_URL` 为 armhf tarball）
+2. 如需不同 SoC 内核，添加对应 submodule 到 `kernels/`（如 cancro → `kernels/msm8974`）
 3. 机型定制放在 `devices/<codename>/` 目录（全部可选）：
    - `kernel.config` — 内核配置片段，defconfig 之后由 build_kernel.sh 合并
-   - `rootfs/` — overlay，assemble.sh 原样拷入根文件系统（服务/脚本/配置都放这里）
+   - `rootfs/` — 机型私有 overlay（机型无关的公共服务在 `config/rootfs/`，所有机型自动套用）
    - `post-assemble.sh` — 根文件系统组装完成后在 chroot 内执行的钩子
      （启用服务、编译安装额外软件等；环境变量带 DEVICE_CODENAME 等机型参数）
-4. 同 SoC 的机型加进 `.github/workflows/build.yml` 的 `DEVICE_ENVS_EXTLINUX`，
-   出 extlinux 合并包；要并行构建不同 SoC 机型再把 `DEVICE_ENV` 改成 matrix
+4. 同 SoC 同架构的机型加进 `.github/workflows/build.yml` 的 `DEVICE_ENVS_EXTLINUX`，
+   出 extlinux 合并包；不同 SoC/架构的机型照 `build-cancro` job 另起独立构建
 
 ## 仓库结构
 
 ```
-├── .github/workflows/build.yml   # CI 流水线
+├── .github/workflows/build.yml   # CI 流水线（build: msm8916 合并包；build-cancro: armhf 独立包）
 ├── .github/workflows/pages.yml   # 文档站部署（GitHub Pages）
 ├── config/base.env               # 全局配置（ubuntu-base 源、预装包、时区、bootfs UUID、buffyboard 开关）
+├── config/rootfs/                # 全机型共享 overlay：umeko 服务套件（usb-gadget/autottyGS0/...）
 ├── devices/wt88047.env           # 机型配置（内核/dtb/mkbootimg 参数/lk2nd/cmdline/webssh 源）
-├── devices/wt88047/              # 机型定制：kernel.config、rootfs/ overlay、post-assemble.sh
+├── devices/wt88047/              # 机型定制：kernel.config、post-assemble.sh
 ├── devices/vivo-y23l.env         # 第二机型配置（与 wt88047 合并出 extlinux 包）
 ├── devices/vivo-y23l/            # vivo 机型定制：内核 patch（设备树+面板驱动）、fstab 钩子
+├── devices/cancro.env            # 小米4（msm8974/armhf）配置
+├── devices/cancro/               # cancro 定制：kernel.config（关 G_SERIAL 等）、post-assemble.sh
 ├── docker/Dockerfile             # 本地构建环境（与 CI 依赖一致）
 ├── docs/                         # 文档站源码（mkdocs-material）
 ├── kernels/msm8916               # submodule：msm8916-mainline/linux @ v6.12.1-msm8916
+├── kernels/msm8974               # submodule：bzy-080408/linux-msm8974 @ cancro-klipper
 └── scripts/                      # build_kernel / build_rootfs / assemble / pack_extlinux / pack(legacy) / docker_build
 ```
 
@@ -112,5 +118,5 @@ git submodule update --init --depth 1
 ## 已知限制 / TODO
 
 - ~~根分区不会自动扩满 userdata~~（已由 autoresize 服务开机自动扩容）
-- 暂无 USB 网络（rndis/ecm）配置，联网需先经串口/USB串口用 `nmtui` 配 WiFi
-- 二期：Klipper 全家桶（klipper/moonraker/fluidd/KlipperScreen）chroot 安装、更多机型 matrix
+- ~~暂无 USB 网络配置~~（usb-gadget 服务已提供 NCM 网卡：usb0，手机端 192.168.100.1，可 SSH）
+- 二期：Klipper 全家桶（klipper/moonraker/fluidd/KlipperScreen）chroot 安装、更多机型
