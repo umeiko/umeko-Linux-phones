@@ -23,3 +23,21 @@ systemctl enable \
     auto_rmi4_reload.service \
     autowebssh.service \
     autocanup.service
+
+# TEMPORARY: fetch modem/WiFi firmware from the firmwares repo release at
+# build time — only when BUNDLE_FIRMWARE=1 (local builds; CI runs without it
+# so public artifacts never contain proprietary firmware). On-device
+# auto-extract (umeko-modem-firmware.service, from the phone's modem
+# partition) does not work on this device — partition layout incompatible.
+# Once extraction is fixed, drop this block and rely on it.
+# NOTE: Qualcomm proprietary firmware — images containing it must NOT be
+# published as public releases/CI artifacts.
+if [ "${BUNDLE_FIRMWARE:-0}" = "1" ]; then
+    FW_URL="https://github.com/umeiko/umeko-linux-phones-firmwares/releases/download/msm8916-20260907/msm8916-firmware.tar.gz"
+    FW_SHA256="bfc8089a02b3a808d323f0ea5f12aa9d8b702faf0a25af65e7463ffc411f84a1"
+    wget -q "$FW_URL" -O /tmp/msm8916-firmware.tar.gz
+    echo "$FW_SHA256  /tmp/msm8916-firmware.tar.gz" | sha256sum -c -
+    mkdir -p /lib/firmware
+    tar xzf /tmp/msm8916-firmware.tar.gz -C /lib/firmware/
+    rm -f /tmp/msm8916-firmware.tar.gz
+fi

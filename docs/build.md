@@ -37,7 +37,7 @@ devices/wt88047/           # 机型定制目录（全部可选，见下）
 | --- | --- | --- |
 | `kernel.config` | build_kernel.sh | 内核配置片段，defconfig 之后用内核自带的 `scripts/kconfig/merge_config.sh` 合并，再 `olddefconfig` |
 | `kernel-patches/` | build_kernel.sh | 内核补丁（`*.patch`，按文件名排序用 `git apply` 打进内核树，幂等；已应用的会跳过）。注意：打补丁会弄脏内核工作树，配合片段里 `# CONFIG_LOCALVERSION_AUTO is not set`（脚本同时导出空 `LOCALVERSION`）保证 kernelrelease 可复现 |
-| `rootfs/` | assemble.sh | 机型私有 overlay，原样拷入根文件系统。所有机型共享的 overlay 在 `config/rootfs/`（umeko 服务套件：usb-gadget、autottyGS0、autoresize 等），先拷贝、可被机型 overlay 覆盖 |
+| `rootfs/` | assemble.sh | 机型私有 overlay，原样拷入根文件系统。所有机型共享的 overlay 在 `config/rootfs/`（umeko 服务套件：usb-gadget、ncm-serial、autoresize 等），先拷贝、可被机型 overlay 覆盖 |
 | `post-assemble.sh` | assemble.sh | 根文件系统组装完成后在 chroot 里执行的钩子：`systemctl enable …`、编译安装额外软件等。环境变量带 `DEVICE_CODENAME` `DEVICE_NAME` `SOC` `DEFAULT_USER` `BOOTFS_UUID` |
 
 `KERNEL_DTB` 支持空格分隔多个 dtb（如 cancro 的三个触屏变体），多于一个时
@@ -123,5 +123,7 @@ BUFFYBOARD=1 ./scripts/assemble.sh devices/wt88047.env devices/vivo-y23l.env
 
 - 内核版本号在本地 Windows 工作区直接构建时可能带 `-dirty` 后缀（Windows 文件系统丢 exec 位/符号链接导致内核 git 树变"脏"）。用[容器内构建](docker.md)则无此问题；CI 上始终干净
 - Ubuntu 24.04 的 `mkbootimg` 包漏装了 `gki` python 模块（上游打包 bug，只在用 GKI 签名参数时才真正需要它）。`pack.sh` 检测到会自动在宿主机装一个 stub 模块，无需人工干预
-- **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本在 `config/rootfs/usr/local/lib/umeko/usb_gadget_setup.sh`），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）
+- **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本 `config/rootfs/usr/local/sbin/usb-gadget-ncm-serial.sh`，注意 `modprobe libcomposite` 不可省——libcomposite 没加载时 configfs 里没有 `usb_gadget/`，服务直接失败），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间；`ncm-serial.service`（`ncm-serial-setup.sh`）随后配好 usb0 地址并挂 agetty。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）
 - **btrfs-progs 已强制移除**：ubuntu-base 自带的 btrfs-progs 与高通 SoC 平台存在致命冲突（其 udev 规则/用户态会在启动时卡死），assemble.sh 在 chroot 里 `apt-get purge -y btrfs-progs`，不要在 `ROOTFS_PACKAGES` 里再加回来
+- **固件目前是构建时拉取（临时方案）**：modem/WiFi 固件（高通专有，不可公开再分发）原本设计为由 `umeko-modem-firmware.service` 开机时从手机自己的 modem 分区提取到 `/lib/firmware`——**该机制在 vivo-y23l 上实测不可行（分区布局不兼容），暂时废弃**。当前临时方案：`devices/wt88047/post-assemble.sh` 与 `devices/vivo-y23l/post-assemble.sh` 在 chroot 里从 [umeko-linux-phones-firmwares 的 release](https://github.com/umeiko/umeko-linux-phones-firmwares/releases) 拉 `msm8916-firmware.tar.gz`（sha256 校验）解进 `/lib/firmware`。该固件块由 `BUNDLE_FIRMWARE` 门控（默认 `0`）：**CI 不设此变量，产物不含固件、可公开；本地要出带固件的包需 `BUNDLE_FIRMWARE=1` 构建，且仅限自用/小范围测试，不能挂公开 release**；待自动提取机制修好后删除两个 hook 里的固件块并恢复纯提取路线。`umeko-modem-firmware.service` 保持 enable（固件已存在时它会自动跳过）
+- **usb0 不做 DHCP、NetworkManager 不接管**：usb0 的 `192.168.100.1/24` 由 `ncm-serial-setup.sh` 静态配置，`config/rootfs/etc/NetworkManager/conf.d/99-unmanaged-usb0.conf` 阻止 NM 接管（否则 NM 会冲掉静态地址并跑无用 DHCP，ssh 随之不通）。同时 `50-managed-ethernet.conf` 给 Ubuntu 默认"以太网不托管"的配置追加 `except:type:ethernet`（红米2 验证过的修法，OTG 插 USB 网卡时 NM 才会 DHCP 拿地址；unmanaged-devices 多文件按文件名序合并、后命中生效，usb0 被 99 那条钉在 unmanaged 不受影响）。WLAN 侧已通过 `config/rootfs/var/lib/NetworkManager/NetworkManager.state` 预置 `WirelessEnabled=true`，nmcli 可直接管理 wlan0

@@ -240,6 +240,7 @@ for i in "${!DEVICE_DIRS[@]}"; do
         sudo chroot "$MNT_DIR" env \
             DEVICE_CODENAME="$(basename "$dir")" DEVICE_NAME="${DEVICE_NAMES[$i]}" \
             SOC="$SOC" DEFAULT_USER="$DEFAULT_USER" BOOTFS_UUID="${BOOTFS_UUID:-}" \
+            BUNDLE_FIRMWARE="${BUNDLE_FIRMWARE:-0}" \
             bash /tmp/umeko-device-setup.sh
         sudo rm -f "$MNT_DIR/tmp/umeko-device-setup.sh"
     fi
