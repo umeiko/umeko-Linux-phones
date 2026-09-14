@@ -5,8 +5,10 @@ set -e
 # Mount the extlinux bootfs at /boot: kernel/dtbs/extlinux.conf live there,
 # mounting it lets the running system inspect and update them.
 # BOOTFS_UUID is fixed in config/base.env and written into the bootfs image
-# by pack_extlinux.sh (mke2fs -U).
-echo "UUID=${BOOTFS_UUID} /boot ext2 defaults 0 2" >> /etc/fstab
+# by pack_extlinux.sh (mke2fs -U). Guarded: in a combined build every vivo
+# device's hook runs against the same rootfs — append only once.
+grep -q "${BOOTFS_UUID}" /etc/fstab 2>/dev/null || \
+    echo "UUID=${BOOTFS_UUID} /boot ext2 defaults 0 2" >> /etc/fstab
 
 # TEMPORARY: same build-time firmware fetch as the wt88047 hook (see that
 # file for the rationale), gated on BUNDLE_FIRMWARE=1 (local builds only —
