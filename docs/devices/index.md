@@ -7,7 +7,7 @@
 | --- | --- | --- | --- | --- |
 | [红米 2 (Redmi 2)](wt88047.md) | `wt88047` | MSM8916 | extlinux 合并包（默认；mkbootimg 为 legacy） | CI 出包，真机在用 |
 | [vivo Y23L](vivo-y23l.md) | `vivo-y23l` | MSM8916 | extlinux 合并包（需 lk1st 引导） | 真机已验证启动 |
-| [小米 4 (Mi 4)](cancro.md) | `cancro` | MSM8974PRO（32 位） | extlinux 独立包（armhf，不合并） | 🧪 CI 出包，待真机验证 |
+| [小米 4 (Mi 4)](cancro.md) | `cancro` | MSM8974PRO（32 位） | mkbootimg 独立包（pack.sh，boots/ 触屏多变体） | 🧪 CI 出包，待真机验证 |
 
 ## 状态标记说明
 

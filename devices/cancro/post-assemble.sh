@@ -7,18 +7,20 @@ set -e
 # The overlay may lose executable bits when the git working tree lives on a
 # Windows checkout, so fix permissions explicitly.
 chmod 644 /etc/systemd/system/*.service /etc/modprobe.d/*.conf
-chmod 755 /usr/local/lib/umeko/*.sh /usr/local/sbin/*.sh
+chmod 755 /usr/local/lib/umeko/*.sh /usr/local/lib/umeko/webssh /usr/local/sbin/*.sh
 
-# Mount the extlinux bootfs at /boot: kernel/dtbs/extlinux.conf live there,
-# mounting it lets the running system inspect and update them.
-echo "UUID=${BOOTFS_UUID} /boot ext2 defaults 0 2" >> /etc/fstab
+# Mount the extlinux bootfs at /boot — NOTE: cancro boots via a mkbootimg
+# boot.img (pack.sh), not the extlinux scan, so /boot is just the kernel
+# build residue from initramfs generation; keep fstab empty for cancro.
 
-# Same service set as wt88047 (see config/rootfs), EXCEPT autowebssh:
-# there is no armhf webssh binary yet (WIP — see devices/cancro.env).
+# Same service set as wt88047 (see config/rootfs). webssh comes from the
+# vendored armhf binary (see devices/cancro.env), so autowebssh is enabled
+# here too.
 systemctl enable \
     umeko-modem-firmware.service \
     usb-gadget.service \
     ncm-serial.service \
     autoresize.service \
     auto_rmi4_reload.service \
+    autowebssh.service \
     autocanup.service

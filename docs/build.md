@@ -10,10 +10,13 @@ build_rootfs.sh     下载 ubuntu-base tarball（sha256 校验）+ 创建固定 
 assemble.sh         挂载镜像 + qemu-aarch64 chroot：装包、建用户、locale、串口 console、
                     装内核 modules、生成 initramfs、套用机型定制（overlay / 预置二进制 /
                     post-assemble 钩子），可选编译安装 buffyboard（见下文）
-pack_extlinux.sh    默认打包路线：mke2fs 出纯 ext2 的 bootfs.img（extlinux.conf +
+pack_extlinux.sh    msm8916 合并包路线：mke2fs 出纯 ext2 的 bootfs.img（extlinux.conf +
                     Image.gz + initrd.img + 全机型 dtb）、img2simg 出 sparse rootfs.img、
                     下载 lk2nd、生成 flash.sh/flash.bat 和 BUILD-INFO.txt，打 zip
-pack.sh             legacy 路线（CI 不再自动构建）：mkbootimg 出 boot.img 的单机型包
+pack.sh             cancro 用的 mkbootimg 单机型包路线：每个 dtb 变体出一个
+                    boot.img（多变体时放 boots/ 子目录 + 刷机脚本提供选择菜单），
+                    boot.img 需从 lk2nd 的 fastboot 刷入（lk2nd 存到 +512KiB 偏移
+                    并 chainload），rootfs.img 刷 userdata
 ```
 
 所有脚本接受同一个参数：机型配置文件，如 `./scripts/build_kernel.sh devices/wt88047.env`。
@@ -54,7 +57,7 @@ wt88047 的内核片段（`devices/wt88047/kernel.config`）在 msm8916_defconfi
 
 - **触发**：push 到 `main` 且改动涉及代码（`scripts/` `devices/` `config/` `kernels/` 等，由前置 `changes` job 用 `git diff` 门控——纯文档变更不构建）或手动触发 → 构建并上传 artifact（保留 14 天）；push `v*` tag → 始终构建并发布 GitHub Release（tag 不受路径过滤影响）
 - **环境**：`ubuntu-24.04` runner，依赖安装清单与 [Dockerfile](docker.md) 一致
-- **产物**：两个 job 两个包——`build` 出 msm8916 extlinux 合并包（`DEVICE_ENVS_EXTLINUX`：红米2 + vivo Y23L），`build-cancro` 出 cancro 独立包（armhf，内核源/工具链/底包均不同）；mkbootimg 单机型包（`pack.sh`）已转 legacy，CI 不再构建，需要时本地跑
+- **产物**：两个 job 两个包——`build` 出 msm8916 extlinux 合并包（`DEVICE_ENVS_EXTLINUX`：红米2 + vivo Y23L，走 `pack_extlinux.sh`），`build-cancro` 出 cancro 独立包（armhf，内核源/工具链/底包均不同，走 `pack.sh` 的 mkbootimg 多变体 boot.img 路线）
 - **buffyboard**：CI 上 `BUFFYBOARD=0`，只构建 base 包（qemu 下编译 buffyboard 太慢），开关见下文
 - **缓存**：
   - ccache（key `kernel-wt88047`）——第二次起内核编译从 ~8 分钟降到 1~2 分钟
@@ -125,5 +128,5 @@ BUFFYBOARD=1 ./scripts/assemble.sh devices/wt88047.env devices/vivo-y23l.env
 - Ubuntu 24.04 的 `mkbootimg` 包漏装了 `gki` python 模块（上游打包 bug，只在用 GKI 签名参数时才真正需要它）。`pack.sh` 检测到会自动在宿主机装一个 stub 模块，无需人工干预
 - **USB gadget 走 configfs，不再内建 g_serial**（修复 [#36](https://github.com/umeiko/KlipperPhonesLinux/issues/36)）：内建的 `CONFIG_USB_G_SERIAL=y` 开机即独占 USB 控制器（UDC），OTG ID 脚触发的角色切换无法进行。现在 gadget 由 `usb-gadget.service` 开机通过 configfs 按需组装（acm 串口 ttyGS0 + NCM 网卡 usb0，脚本 `config/rootfs/usr/local/sbin/usb-gadget-ncm-serial.sh`，注意 `modprobe libcomposite` 不可省——libcomposite 没加载时 configfs 里没有 `usb_gadget/`，服务直接失败），UDC 在 gadget 创建时才绑定，给 OTG 角色切换留出了空间；`ncm-serial.service`（`ncm-serial-setup.sh`）随后配好 usb0 地址并挂 agetty。插电脑同时得到串口控制台和 USB 网卡（手机端 `192.168.100.1`，可直接 SSH）
 - **btrfs-progs 已强制移除**：ubuntu-base 自带的 btrfs-progs 与高通 SoC 平台存在致命冲突（其 udev 规则/用户态会在启动时卡死），assemble.sh 在 chroot 里 `apt-get purge -y btrfs-progs`，不要在 `ROOTFS_PACKAGES` 里再加回来
-- **固件目前是构建时拉取（临时方案）**：modem/WiFi 固件（高通专有，不可公开再分发）原本设计为由 `umeko-modem-firmware.service` 开机时从手机自己的 modem 分区提取到 `/lib/firmware`——**该机制在 vivo-y23l 上实测不可行（分区布局不兼容），暂时废弃**。当前临时方案：`devices/wt88047/post-assemble.sh` 与 `devices/vivo-y23l/post-assemble.sh` 在 chroot 里从 [umeko-linux-phones-firmwares 的 release](https://github.com/umeiko/umeko-linux-phones-firmwares/releases) 拉 `msm8916-firmware.tar.gz`（sha256 校验）解进 `/lib/firmware`。该固件块由 `BUNDLE_FIRMWARE` 门控（默认 `0`）：**CI 不设此变量，产物不含固件、可公开；本地要出带固件的包需 `BUNDLE_FIRMWARE=1` 构建，且仅限自用/小范围测试，不能挂公开 release**；待自动提取机制修好后删除两个 hook 里的固件块并恢复纯提取路线。`umeko-modem-firmware.service` 保持 enable（固件已存在时它会自动跳过）
+- **固件目前是构建时拉取（临时方案）**：modem/WiFi 固件（高通专有，不可公开再分发）原本设计为由 `umeko-modem-firmware.service` 开机时从手机自己的 modem 分区提取到 `/lib/firmware`——**该机制在 vivo-y23l 上实测不可行（分区布局不兼容），暂时废弃**。当前临时方案：`devices/wt88047/post-assemble.sh` 与 `devices/vivo-y23l/post-assemble.sh` 在 chroot 里从 [umeko-linux-phones-firmwares 的 release](https://github.com/umeiko/umeko-linux-phones-firmwares/releases) 拉 `msm8916-firmware.tar.gz`（sha256 校验）解进 `/lib/firmware`。⚠️ 这样打出来的镜像内含专有固件，**只能本地自用/小范围测试，不能挂公开 release 或 CI 产物**；待自动提取机制修好后删除两个 hook 里的固件块并恢复纯提取路线。`umeko-modem-firmware.service` 保持 enable（固件已存在时它会自动跳过）
 - **usb0 不做 DHCP、NetworkManager 不接管**：usb0 的 `192.168.100.1/24` 由 `ncm-serial-setup.sh` 静态配置，`config/rootfs/etc/NetworkManager/conf.d/99-unmanaged-usb0.conf` 阻止 NM 接管（否则 NM 会冲掉静态地址并跑无用 DHCP，ssh 随之不通）。同时 `50-managed-ethernet.conf` 给 Ubuntu 默认"以太网不托管"的配置追加 `except:type:ethernet`（红米2 验证过的修法，OTG 插 USB 网卡时 NM 才会 DHCP 拿地址；unmanaged-devices 多文件按文件名序合并、后命中生效，usb0 被 99 那条钉在 unmanaged 不受影响）。WLAN 侧已通过 `config/rootfs/var/lib/NetworkManager/NetworkManager.state` 预置 `WirelessEnabled=true`，nmcli 可直接管理 wlan0

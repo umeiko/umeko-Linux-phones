@@ -11,7 +11,7 @@
 1. `build_kernel.sh` — submodule（msm8916 → msm8916-mainline/linux v6.12.1；cancro → bzy-080408/linux-msm8974 的 cancro-klipper 分支）+ `devices/<机型>/kernel-patches/` + `kernel.config` fragment。ARCH 由设备 env 决定（arm64→aarch64 工具链/Image.gz；armhf→arm-linux-gnueabi/zImage），多机型构建必须同架构
 2. `build_rootfs.sh` — 下载 ubuntu-base tarball（arm64/armhf 由 `UBUNTU_BASE_URL` 决定，校验 SHA256）+ 固定 UUID 的 ext4 空镜像
 3. `assemble.sh` — qemu chroot（arm64→qemu-aarch64-static，armhf→qemu-arm-static）装包/用户/服务 + 内核模块 + initramfs（压缩格式 `INITRD_COMPRESS`，cancro 用 gzip）+ **`config/rootfs/` 共享 overlay**（umeko 服务套件）+ 设备 overlay + post-assemble 钩子。**btrfs-progs 会被 purge（高通平台致命冲突，勿加回）**
-4. `pack_extlinux.sh` — **默认路线**：extlinux 合并包（lk2nd 读 bootfs.img 里的 extlinux.conf，fdtdir 支持多机型/多 dtb 变体共包）。`pack.sh`（mkbootimg）是 legacy。
+4. 打包二选一：`pack_extlinux.sh` — msm8916 合并包路线（lk2nd 读 bootfs.img 里的 extlinux.conf，fdtdir 多机型/多 dtb 共包）；`pack.sh` — mkbootimg 单机型包（cancro 用：每个 dtb 变体出一个 boot.img + 刷机脚本选择菜单，boot.img 从 lk2nd 的 fastboot 刷入，lk2nd 存到 +512KiB 偏移 chainload）
 
 CI 在 `.github/workflows/build.yml`；纯文档 push 不触发构建（changes 门控），tag/手动始终构建。
 

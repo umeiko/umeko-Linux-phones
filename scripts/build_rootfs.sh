@@ -11,14 +11,20 @@ TARBALL="$CACHE_DIR/$(basename "$UBUNTU_BASE_URL")"
 
 if [[ ! -f "$TARBALL" ]]; then
     log "downloading $UBUNTU_BASE_URL"
-    curl -fL --retry 3 -o "$TARBALL" "$UBUNTU_BASE_URL"
+    # Download to a temp name first: an interrupted download must not poison
+    # the cache (CI caches .cache/ between runs).
+    curl -fL --retry 3 -o "$TARBALL.part" "$UBUNTU_BASE_URL"
+    mv "$TARBALL.part" "$TARBALL"
 else
     log "using cached $(basename "$TARBALL")"
 fi
 
 log "verifying tarball against official SHA256SUMS"
-curl -fsSL "$UBUNTU_BASE_SHA256SUMS_URL" -o "$CACHE_DIR/SHA256SUMS"
-( cd "$CACHE_DIR" && grep "$(basename "$TARBALL")\$" SHA256SUMS | sed 's/ \*/  /' | sha256sum -c - )
+curl -fsSL --retry 3 "$UBUNTU_BASE_SHA256SUMS_URL" -o "$CACHE_DIR/SHA256SUMS"
+if ! ( cd "$CACHE_DIR" && grep "$(basename "$TARBALL")\$" SHA256SUMS | sed 's/ \*/  /' | sha256sum -c - ); then
+    rm -f "$TARBALL"
+    die "tarball checksum mismatch — bad cache copy deleted, re-run to re-download"
+fi
 
 IMAGE="$BUILD_DIR/rootfs.img"
 if [[ ! -f "$IMAGE" ]]; then

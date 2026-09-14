@@ -150,8 +150,8 @@ jobs:
       - name: Assemble rootfs (chroot)
         run: ./scripts/assemble.sh devices/cancro.env
 
-      - name: Pack extlinux bundle
-        run: ./scripts/pack_extlinux.sh devices/cancro.env
+      - name: Pack bundle (mkbootimg, one boot.img per touch variant)
+        run: ./scripts/pack.sh devices/cancro.env
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
