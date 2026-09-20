@@ -93,7 +93,10 @@ if [[ ${#BOOT_FILES[@]} -eq 1 ]]; then
     SELECT_BAT='@echo off
 set IMG=boot.img'
 else
-    # Numbered chooser over boots/*.img (same UX as the legacy cancro bundle)
+    # Numbered chooser over boots/*.img (same UX as the legacy cancro bundle).
+    # Quoted heredoc: the batch line for /f ... in ('set IMG...') contains
+    # single quotes, which would terminate a '...' string and make bash
+    # execute the remainder (this actually broke CI).
     SELECT_SH="$(cat <<'EOS'
 mapfile -t IMGS < <(ls boots/*.img)
 echo "choose your boot image (touch panel variant):"
@@ -103,14 +106,17 @@ IMG="${IMGS[$((choice-1))]:-}"
 [[ -n "$IMG" ]] || { echo "invalid choice"; exit 1; }
 EOS
 )"
-    SELECT_BAT='@echo off
+    SELECT_BAT="$(cat <<'EOS'
+@echo off
 setlocal enabledelayedexpansion
 set i=0
 for %%f in (boots\*.img) do (set /a i+=1 & set "IMG!i!=%%f" & echo   !i!. %%f)
 set /p choice=number:
 set IMG=
 for /f "tokens=1,2 delims==" %%a in ('set IMG%choice% 2^>nul') do set IMG=%%b
-if "%IMG%"=="" (echo invalid choice & exit /b 1)'
+if "%IMG%"=="" (echo invalid choice & exit /b 1)
+EOS
+)"
 fi
 
 cat > "$STAGE/flash.sh" <<EOF
